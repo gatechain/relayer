@@ -9,10 +9,10 @@ all: ci-lint install
 # Build / Install
 ###############################################################################
 
-LD_FLAGS = -X github.com/cosmos/relayer/cmd.Version=$(VERSION) \
-	-X github.com/cosmos/relayer/cmd.Commit=$(COMMIT) \
-	-X github.com/cosmos/relayer/cmd.SDKCommit=$(SDKCOMMIT) \
-	-X github.com/cosmos/relayer/cmd.GaiaCommit=$(GAIACOMMIT)
+LD_FLAGS = -X github.com/gatechain/relayer/cmd.Version=$(VERSION) \
+	-X github.com/gatechain/relayer/cmd.Commit=$(COMMIT) \
+	-X github.com/gatechain/relayer/cmd.SDKCommit=$(SDKCOMMIT) \
+	-X github.com/gatechain/relayer/cmd.GaiaCommit=$(GAIACOMMIT)
 
 BUILD_FLAGS := -ldflags '$(LD_FLAGS)'
 
@@ -83,6 +83,6 @@ get-akash:
 
 get-chains: get-gaia get-akash
 
-delete-chains: 
+delete-chains:
 	@echo "Removing the ./chain-code/ directory..."
 	@rm -rf ./chain-code

@@ -11,7 +11,7 @@ import (
 	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/relayer/relayer"
+	"github.com/gatechain/relayer/relayer"
 	"github.com/gorilla/mux"
 	"github.com/spf13/cobra"
 )

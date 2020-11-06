@@ -21,7 +21,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	tmclient "github.com/cosmos/cosmos-sdk/x/ibc/light-clients/07-tendermint/types"
-	"github.com/cosmos/relayer/relayer"
+	"github.com/gatechain/relayer/relayer"
 	"github.com/spf13/cobra"
 )
 

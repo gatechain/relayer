@@ -87,7 +87,7 @@ echo 'export GOPATH=$HOME/go' >> ~/.profile
 echo 'export GOBIN=$GOPATH/bin' >> ~/.profile
 echo 'export PATH=$PATH:/usr/local/go/bin:$GOBIN' >> ~/.profile
 echo "export GAIA=\$GOPATH/src/github.com/cosmos/gaia" >> ~/.profile
-echo "export RELAYER=\$GOPATH/src/github.com/cosmos/relayer" >> ~/.profile
+echo "export RELAYER=\$GOPATH/src/github.com/gatechain/relayer" >> ~/.profile
 source ~/.profile
 
 # Set these variables to different values that are specific to your chain
@@ -101,7 +101,7 @@ export ACCOUNT_PREFIX=cosmos
 
 # Start by downloading and installing both gaia and the relayer
 mkdir -p $(dirname $GAIA) && git clone https://github.com/cosmos/gaia $GAIA && cd $GAIA && git checkout $GAIASHA && make install
-mkdir -p $(dirname $RELAYER) && git clone https://github.com/cosmos/relayer $RELAYER && cd $RELAYER && make install
+mkdir -p $(dirname $RELAYER) && git clone https://github.com/gatechain/relayer $RELAYER && cd $RELAYER && make install
 
 # Verify gaia version matches that of the latest testnet above
 gaia version --long
@@ -150,7 +150,7 @@ Once you have your server (you could deploy the relayer on a different machine a
 
 ```bash
 # install the relayer
-export RELAYER=$GOPATH/src/github.com/cosmos/relayer
+export RELAYER=$GOPATH/src/github.com/gatechain/relayer
 mkdir -p $(dirname $RELAYER) && git clone git@github.com:cosmos/relayer $RELAYER && cd $RELAYER
 make install
 

@@ -1,4 +1,4 @@
-module github.com/cosmos/relayer
+module github.com/gatechain/relayer
 
 go 1.14
 

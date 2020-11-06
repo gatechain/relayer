@@ -21,7 +21,7 @@ import (
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/client/flags"
-	"github.com/cosmos/relayer/relayer"
+	"github.com/gatechain/relayer/relayer"
 	"github.com/spf13/cobra"
 )
 

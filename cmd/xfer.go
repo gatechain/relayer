@@ -6,7 +6,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/spf13/cobra"
 
-	"github.com/cosmos/relayer/relayer"
+	"github.com/gatechain/relayer/relayer"
 )
 
 // NOTE: These commands are registered over in cmd/raw.go

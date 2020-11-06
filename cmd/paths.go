@@ -11,7 +11,7 @@ import (
 	chantypes "github.com/cosmos/cosmos-sdk/x/ibc/core/04-channel/types"
 	"github.com/cosmos/cosmos-sdk/x/ibc/core/exported"
 	tmclient "github.com/cosmos/cosmos-sdk/x/ibc/light-clients/07-tendermint/types"
-	"github.com/cosmos/relayer/relayer"
+	"github.com/gatechain/relayer/relayer"
 	"github.com/spf13/cobra"
 	"golang.org/x/sync/errgroup"
 	"gopkg.in/yaml.v2"

@@ -3,7 +3,7 @@ package cmd
 import (
 	"strconv"
 
-	"github.com/cosmos/relayer/relayer"
+	"github.com/gatechain/relayer/relayer"
 	"github.com/spf13/cobra"
 )
 
