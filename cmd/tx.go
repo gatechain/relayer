@@ -42,6 +42,7 @@ func transactionCmd() *cobra.Command {
 		linkThenStartCmd(),
 		relayMsgsCmd(),
 		relayAcksCmd(),
+		relaysCmd(),
 		xfersend(),
 		flags.LineBreak,
 		createClientsCmd(),
@@ -354,6 +355,76 @@ func relayAcksCmd() *cobra.Command {
 			}
 
 			return nil
+		},
+	}
+
+	return strategyFlag(cmd)
+}
+
+func relaysCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     "relays [path-name]",
+		Aliases: []string{"rlys"},
+		Short:   "auto-relay any packets and acknowledgements that remain to be relayed on a given path, in both directions, every 10 seconds",
+		Args:    cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, src, dst, err := config.ChainsFromPath(args[0])
+			if err != nil {
+				return err
+			}
+
+			if err = ensureKeysExist(c); err != nil {
+				return err
+			}
+
+			strategy, err := GetStrategyWithOptions(cmd, config.Paths.MustGet(args[0]).MustGetStrategy())
+			if err != nil {
+				return err
+			}
+			fmt.Println("relay packets and acknowledgements every 10 seconds")
+
+			errChan := make(chan error, 1)
+			go func() {
+				ticker := time.NewTicker(time.Second * 10)
+				defer ticker.Stop()
+				for {
+					fmt.Println("update headers...")
+					sh, err := relayer.NewSyncHeaders(c[src], c[dst])
+					if err != nil {
+						errChan <- err
+						return
+					}
+
+					fmt.Println("relay-packets...")
+					sp, err := strategy.UnrelayedSequences(c[src], c[dst], sh)
+					if err != nil {
+						errChan <- err
+						return
+					}
+					if err = strategy.RelayPackets(c[src], c[dst], sp, sh); err != nil {
+						errChan <- err
+						return
+					}
+
+					fmt.Println("relay-acknowledgements...")
+					sp, err = strategy.UnrelayedAcknowledgements(c[src], c[dst], sh)
+					if err != nil {
+						errChan <- err
+						return
+					}
+
+					if err = strategy.RelayAcknowledgements(c[src], c[dst], sp, sh); err != nil {
+						errChan <- err
+						return
+					}
+					select {
+					case <-ticker.C: // wait 10 seconds
+
+					}
+				}
+			}()
+			err = <-errChan
+			return err
 		},
 	}
 
