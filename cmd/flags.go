@@ -32,6 +32,7 @@ var (
 	flagIBCDenoms           = "ibc-denoms"
 	flagTimeoutHeightOffset = "timeout-height-offset"
 	flagTimeoutTimeOffset   = "timeout-time-offset"
+	flagAlgo                = "algo"
 )
 
 func ibcDenomFlags(cmd *cobra.Command) *cobra.Command {
@@ -199,6 +200,14 @@ func versionFlag(cmd *cobra.Command) *cobra.Command {
 func forceFlag(cmd *cobra.Command) *cobra.Command {
 	cmd.Flags().BoolP(flagForce, "f", false, "option to force non-standard behavior such as initialization of light client from configured chain or generation of new path") //nolint:lll
 	if err := viper.BindPFlag(flagForce, cmd.Flags().Lookup(flagForce)); err != nil {
+		panic(err)
+	}
+	return cmd
+}
+
+func algoFlag(cmd *cobra.Command) *cobra.Command {
+	cmd.Flags().StringP(flagAlgo, "a", "", "create account algorithm")
+	if err := viper.BindPFlag(flagVersion, cmd.Flags().Lookup(flagVersion)); err != nil {
 		panic(err)
 	}
 	return cmd

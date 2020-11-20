@@ -112,9 +112,9 @@ func (pe *PathEnd) CreateClient(
 	if err != nil {
 		panic(err)
 	}
-	if err = msg.ValidateBasic(); err != nil {
-		panic(err)
-	}
+	//if err = msg.ValidateBasic(); err != nil {
+	//	panic(err)
+	//}
 	return msg
 }
 
@@ -161,9 +161,9 @@ func (pe *PathEnd) ConnTry(
 		cs.GetLatestHeight().(clienttypes.Height),
 		signer,
 	)
-	if err = msg.ValidateBasic(); err != nil {
-		panic(err)
-	}
+	//if err = msg.ValidateBasic(); err != nil {
+	//	panic(err)
+	//}
 	return msg
 }
 

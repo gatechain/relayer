@@ -18,6 +18,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/cosmos/cosmos-sdk/crypto/keyring"
 	"log"
 	"strings"
 
@@ -118,7 +119,14 @@ func keysRestoreCmd() *cobra.Command {
 				return errKeyExists(keyName)
 			}
 
-			info, err := chain.Keybase.NewAccount(keyName, args[2], "", hd.CreateHDPath(118, 0, 0).String(), hd.Secp256k1)
+			var info keyring.Info
+
+			if algo, _ := cmd.Flags().GetString(flagAlgo); algo == "ed25519x" {
+				info, err = chain.Keybase.NewAccount(keyName, args[2], "", hd.CreateHDPath(669, 0, 0).String(), hd.Ed25519x)
+			} else {
+				info, err = chain.Keybase.NewAccount(keyName, args[2], "", hd.CreateHDPath(118, 0, 0).String(), hd.Secp256k1)
+			}
+
 			if err != nil {
 				return err
 			}
@@ -129,7 +137,7 @@ func keysRestoreCmd() *cobra.Command {
 		},
 	}
 
-	return cmd
+	return algoFlag(cmd)
 }
 
 // keysDeleteCmd respresents the `keys delete` command

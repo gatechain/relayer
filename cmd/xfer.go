@@ -67,10 +67,7 @@ func xfersend() *cobra.Command {
 			}
 
 			done := c[dst].UseSDKContext()
-			dstAddr, err := sdk.AccAddressFromBech32(args[3])
-			if err != nil {
-				return err
-			}
+			dstAddr := args[3]
 			done()
 
 			switch {

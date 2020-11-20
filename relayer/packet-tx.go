@@ -13,7 +13,7 @@ var (
 )
 
 // SendTransferMsg initiates an ibs20 transfer from src to dst with the specified args
-func (c *Chain) SendTransferMsg(dst *Chain, amount sdk.Coin, dstAddr fmt.Stringer, toHeightOffset uint64, toTimeOffset time.Duration) error {
+func (c *Chain) SendTransferMsg(dst *Chain, amount sdk.Coin, dstAddrString string, toHeightOffset uint64, toTimeOffset time.Duration) error {
 	var (
 		timeoutHeight    uint64
 		timeoutTimestamp uint64
@@ -23,9 +23,6 @@ func (c *Chain) SendTransferMsg(dst *Chain, amount sdk.Coin, dstAddr fmt.Stringe
 	if err != nil {
 		return err
 	}
-
-	// Properly render the address string
-	dstAddrString := dstAddr.String()
 
 	switch {
 	case toHeightOffset > 0 && toTimeOffset > 0:

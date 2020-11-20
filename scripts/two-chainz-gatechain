@@ -65,8 +65,8 @@ rly config add-dir configs/gatechain/
 
 SEED0=$(jq -r '.mnemonic' $GAIA_DATA/ibc-0/key_seed.json)
 SEED1=$(jq -r '.mnemonic' $GAIA_DATA/ibc-1/key_seed.json)
-echo "Key $(rly keys restore ibc-0 testkey "$SEED0" ed25519x) imported from ibc-0 to relayer..."
-echo "Key $(rly keys restore ibc-1 testkey "$SEED1" secp256k1) imported from ibc-1 to relayer..."
+echo "Key $(rly keys restore ibc-0 testkey "$SEED0" --algo ed25519x) imported from ibc-0 to relayer..."
+echo "Key $(rly keys restore ibc-1 testkey "$SEED1") imported from ibc-1 to relayer..."
 echo "Creating light clients..."
 sleep 3
 rly light init ibc-0 -f
