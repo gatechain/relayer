@@ -1,0 +1,1109 @@
+Index: client/flags/flags.go
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- client/flags/flags.go	(revision 590358652cc1cbc13872ea1659187e073ea38e75)
++++ client/flags/flags.go	(date 1606383577973)
+@@ -19,7 +19,7 @@
+ 	GasFlagAuto          = "auto"
+ 
+ 	// DefaultKeyringBackend
+-	DefaultKeyringBackend = keyring.BackendOS
++	DefaultKeyringBackend = keyring.BackendFile
+ 
+ 	// BroadcastBlock defines a tx broadcasting mode where the client waits for
+ 	// the tx to be committed in a block.
+Index: crypto/codec/amino.go
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- crypto/codec/amino.go	(revision 590358652cc1cbc13872ea1659187e073ea38e75)
++++ crypto/codec/amino.go	(date 1606383577988)
+@@ -1,6 +1,7 @@
+ package codec
+ 
+ import (
++	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519x"
+ 	"github.com/tendermint/tendermint/crypto"
+ 	tmed25519 "github.com/tendermint/tendermint/crypto/ed25519"
+ 	"github.com/tendermint/tendermint/crypto/sr25519"
+@@ -38,6 +39,8 @@
+ 		secp256k1.PubKeyName, nil)
+ 	cdc.RegisterConcrete(&kmultisig.LegacyAminoPubKey{},
+ 		kmultisig.PubKeyAminoRoute, nil)
++	cdc.RegisterConcrete(&ed25519x.PubKey{},
++		ed25519x.PubKeyName, nil)
+ 
+ 	cdc.RegisterInterface((*crypto.PrivKey)(nil), nil)
+ 	cdc.RegisterConcrete(sr25519.PrivKey{},
+@@ -49,6 +52,8 @@
+ 		ed25519.PrivKeyName, nil)
+ 	cdc.RegisterConcrete(&secp256k1.PrivKey{},
+ 		secp256k1.PrivKeyName, nil)
++	cdc.RegisterConcrete(&ed25519x.PrivKey{},
++		ed25519x.PrivKeyName, nil)
+ }
+ 
+ // PrivKeyFromBytes unmarshals private key bytes and returns a PrivKey
+Index: crypto/hd/algo_ed25519x.go
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- crypto/hd/algo_ed25519x.go	(date 1606383578000)
++++ crypto/hd/algo_ed25519x.go	(date 1606383578000)
+@@ -0,0 +1,51 @@
++package hd
++
++import (
++	cosed25519x "github.com/cosmos/cosmos-sdk/crypto/keys/ed25519x"
++	"github.com/cosmos/go-bip39"
++	"github.com/gatechain/crypto/ed25519x"
++	"github.com/tendermint/tendermint/crypto"
++)
++
++const Ed25519xType = PubKeyType("ed25519x")
++
++var (
++	Ed25519x = ed25519xAlgo{}
++)
++
++type ed25519xAlgo struct {
++}
++
++func (s ed25519xAlgo) Name() PubKeyType {
++	return Ed25519xType
++}
++
++// Derive derives and returns the ed25519x private key for the given seed and HD path.
++func (s ed25519xAlgo) Derive() DeriveFn {
++	return func(mnemonic string, bip39Passphrase, hdPath string) ([]byte, error) {
++		seed, err := bip39.NewSeedWithErrorChecking(mnemonic, bip39Passphrase)
++		if err != nil {
++			return nil, err
++		}
++
++		masterPriv := ed25519x.GenerateXprvFromSeed(seed)
++		derivedKey, err := ed25519x.DerivePrivateKeyFromPath(masterPriv, hdPath)
++
++		//masterPriv, ch := ComputeMastersFromSeed(seed)
++		//if len(hdPath) == 0 {
++		//	return masterPriv[:], nil
++		//}
++		//derivedKey, err := DerivePrivateKeyForPath(masterPriv, ch, hdPath)
++
++		return derivedKey[:], err
++	}
++}
++
++// Generate generates a ed25519x private key from the given bytes.
++func (s ed25519xAlgo) Generate() GenerateFn {
++	return func(bz []byte) crypto.PrivKey {
++		var bzArr = make([]byte, ed25519x.XPrvSize)
++		copy(bzArr, bz)
++		return &cosed25519x.PrivKey{Key: bzArr}
++	}
++}
+\ No newline at end of file
+Index: x/auth/types/account.go
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- x/auth/types/account.go	(revision 590358652cc1cbc13872ea1659187e073ea38e75)
++++ x/auth/types/account.go	(date 1606383578084)
+@@ -2,6 +2,7 @@
+ 
+ import (
+ 	"bytes"
++	"crypto/sha512"
+ 	"encoding/json"
+ 	"errors"
+ 	"fmt"
+@@ -156,7 +157,8 @@
+ 
+ // NewModuleAddress creates an AccAddress from the hash of the module's name
+ func NewModuleAddress(name string) sdk.AccAddress {
+-	return sdk.AccAddress(crypto.AddressHash([]byte(name)))
++	hash := sha512.Sum512([]byte(name))
++	return sdk.AccAddress(hash[:sdk.AddrLen])
+ }
+ 
+ // NewEmptyModuleAccount creates a empty ModuleAccount from a string
+Index: crypto/keys/ed25519x/ed25519x.go
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- crypto/keys/ed25519x/ed25519x.go	(date 1606383578018)
++++ crypto/keys/ed25519x/ed25519x.go	(date 1606383578018)
+@@ -0,0 +1,231 @@
++package ed25519x
++
++import (
++	"crypto/subtle"
++	"fmt"
++	"github.com/gatechain/crypto/ed25519x"
++	"github.com/tendermint/tendermint/crypto"
++	tmed25519 "github.com/tendermint/tendermint/crypto/ed25519"
++
++	"github.com/cosmos/cosmos-sdk/codec"
++	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
++	"github.com/cosmos/cosmos-sdk/types/errors"
++)
++
++//-------------------------------------
++
++const (
++	PrivKeyName = "gatechain/PrivKeyEd25519"
++	PubKeyName  = "gatechain/PubKeyEd25519"
++	// PubKeySize is is the size, in bytes, of public keys as used in this package.
++	PubKeySize = 32
++	// PrivKeySize is the size, in bytes, of private keys as used in this package.
++	PrivKeySize = 96
++	// Size of an Edwards25519 signature. Namely the size of a compressed
++	// Edwards25519 point, and a field element. Both of which are 32 bytes.
++	SignatureSize = 64
++	// SeedSize is the size, in bytes, of private key seeds. These are the
++	// private key representations used by RFC 8032.
++	SeedSize = 32
++
++	keyType = "ed25519x"
++)
++
++var _ cryptotypes.PrivKey = &PrivKey{}
++var _ codec.AminoMarshaler = &PrivKey{}
++
++func (privKey *PrivKey) toXPrv() ed25519x.XPrv {
++	var xprv [ed25519x.XPrvSize]byte
++	copy(xprv[:], privKey.Key)
++	return xprv
++}
++
++// Bytes returns the privkey byte format.
++func (privKey *PrivKey) Bytes() []byte {
++	return privKey.Key
++}
++
++// Sign produces a signature on the provided message.
++// This assumes the privkey is wellformed in the golang format.
++// The first 32 bytes should be random,
++// corresponding to the normal ed25519 private key.
++// The latter 32 bytes should be the compressed public key.
++// If these conditions aren't met, Sign will panic or produce an
++// incorrect signature.
++func (privKey *PrivKey) Sign(msg []byte) ([]byte, error) {
++	return privKey.toXPrv().Sign(msg)
++}
++
++// PubKey gets the corresponding public key from the private key.
++//
++// Panics if the private key is not initialized.
++func (privKey *PrivKey) PubKey() crypto.PubKey {
++	pub := privKey.toXPrv().EDPubKey()
++	return &PubKey{Key: pub[:]}
++}
++
++// Equals - you probably don't need to use this.
++// Runs in constant time based on length of the keys.
++func (privKey *PrivKey) Equals(other crypto.PrivKey) bool {
++	if privKey.Type() != other.Type() {
++		return false
++	}
++
++	return subtle.ConstantTimeCompare(privKey.Bytes(), other.Bytes()) == 1
++}
++
++func (privKey *PrivKey) Type() string {
++	return keyType
++}
++
++// MarshalAmino overrides Amino binary marshalling.
++func (privKey PrivKey) MarshalAmino() ([]byte, error) {
++	return privKey.Key, nil
++}
++
++// UnmarshalAmino overrides Amino binary marshalling.
++func (privKey *PrivKey) UnmarshalAmino(bz []byte) error {
++	if len(bz) != PrivKeySize {
++		return fmt.Errorf("invalid privkey size")
++	}
++	privKey.Key = bz
++
++	return nil
++}
++
++// MarshalAminoJSON overrides Amino JSON marshalling.
++func (privKey PrivKey) MarshalAminoJSON() ([]byte, error) {
++	// When we marshal to Amino JSON, we don't marshal the "key" field itself,
++	// just its contents (i.e. the key bytes).
++	return privKey.MarshalAmino()
++}
++
++// UnmarshalAminoJSON overrides Amino JSON marshalling.
++func (privKey *PrivKey) UnmarshalAminoJSON(bz []byte) error {
++	return privKey.UnmarshalAmino(bz)
++}
++
++// GenPrivKey generates a new ed25519 private key.
++// It uses OS randomness in conjunction with the current global random seed
++// in tendermint/libs/common to generate the private key.
++func GenPrivKey() *PrivKey {
++	return genPrivKey()
++}
++
++// genPrivKey generates a new ed25519 private key using the provided reader.
++func genPrivKey() *PrivKey {
++	seed := make([]byte, SeedSize)
++
++	xprv := ed25519x.GenerateXprvFromSeed(seed)
++
++	return &PrivKey{Key: xprv[:]}
++}
++
++// GenPrivKeyFromSecret hashes the secret with SHA2, and uses
++// that 32 byte output to create the private key.
++// NOTE: secret should be the output of a KDF like bcrypt,
++// if it's derived from user input.
++func GenPrivKeyFromSecret(secret []byte) *PrivKey {
++	seed := crypto.Sha256(secret) // Not Ripemd160 because we want 32 bytes.
++
++	xprv := ed25519x.GenerateXprvFromSeed(seed)
++
++	return &PrivKey{Key: xprv[:]}
++}
++
++//-------------------------------------
++
++var _ cryptotypes.PubKey = &PubKey{}
++var _ codec.AminoMarshaler = &PubKey{}
++var _ cryptotypes.IntoTmPubKey = &PubKey{}
++
++
++func (pubKey *PubKey) toXPub() ed25519x.XPub {
++	var xpub [ed25519x.XPubSize]byte
++	copy(xpub[:], pubKey.Key)
++	return xpub
++}
++
++// Address is the SHA256-20 of the raw pubkey bytes.
++func (pubKey *PubKey) Address() crypto.Address {
++	if len(pubKey.Key) != PubKeySize {
++		panic("pubkey is incorrect size")
++	}
++	addr := pubKey.toXPub().Address()
++	return crypto.Address(addr[:])
++
++	//return crypto.Address(tmhash.SumTruncated(pubKey.Key))
++}
++
++// Bytes returns the PubKey byte format.
++func (pubKey *PubKey) Bytes() []byte {
++	return pubKey.Key
++}
++
++func (pubKey *PubKey) VerifySignature(msg []byte, sig []byte) bool {
++	// make sure we use the same algorithm to sign
++	if len(sig) != SignatureSize {
++		return false
++	}
++
++	return pubKey.toXPub().VerifyBytes(msg, sig)
++}
++
++func (pubKey *PubKey) String() string {
++	return fmt.Sprintf("PubKeyEd25519x{%X}", pubKey.Key)
++}
++
++func (pubKey *PubKey) Type() string {
++	return keyType
++}
++
++func (pubKey *PubKey) Equals(other crypto.PubKey) bool {
++	if pubKey.Type() != other.Type() {
++		return false
++	}
++
++	return subtle.ConstantTimeCompare(pubKey.Bytes(), other.Bytes()) == 1
++}
++
++// MarshalAmino overrides Amino binary marshalling.
++func (pubKey PubKey) MarshalAmino() ([]byte, error) {
++	return pubKey.Key, nil
++}
++
++// UnmarshalAmino overrides Amino binary marshalling.
++func (pubKey *PubKey) UnmarshalAmino(bz []byte) error {
++	if len(bz) != PubKeySize {
++		return errors.Wrap(errors.ErrInvalidPubKey, "invalid pubkey size")
++	}
++	pubKey.Key = bz
++
++	return nil
++}
++
++// MarshalAminoJSON overrides Amino JSON marshalling.
++func (pubKey PubKey) MarshalAminoJSON() ([]byte, error) {
++	// When we marshal to Amino JSON, we don't marshal the "key" field itself,
++	// just its contents (i.e. the key bytes).
++	return pubKey.MarshalAmino()
++}
++
++// UnmarshalAminoJSON overrides Amino JSON marshalling.
++func (pubKey *PubKey) UnmarshalAminoJSON(bz []byte) error {
++	return pubKey.UnmarshalAmino(bz)
++}
++
++// AsTmPubKey converts our own PubKey into a Tendermint ED25519 pubkey.
++func (pubKey *PubKey) AsTmPubKey() crypto.PubKey {
++	return tmed25519.PubKey(pubKey.Key)
++}
++
++// FromTmEd25519 converts a Tendermint ED25519 pubkey into our own ED25519
++// PubKey.
++func FromTmEd25519(pubKey crypto.PubKey) (*PubKey, error) {
++	tmPk, ok := pubKey.(tmed25519.PubKey)
++	if !ok {
++		return nil, fmt.Errorf("expected %T, got %T", tmed25519.PubKey{}, pubKey)
++	}
++
++	return &PubKey{Key: []byte(tmPk)}, nil
++}
+Index: crypto/keys/ed25519x/keys.pb.go
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- crypto/keys/ed25519x/keys.pb.go	(date 1606383578024)
++++ crypto/keys/ed25519x/keys.pb.go	(date 1606383578024)
+@@ -0,0 +1,505 @@
++// Code generated by protoc-gen-gogo. DO NOT EDIT.
++// source: cosmos/crypto/ed25519x/keys.proto
++
++package ed25519x
++
++import (
++	crypto_ed25519 "crypto/ed25519"
++	fmt "fmt"
++	_ "github.com/gogo/protobuf/gogoproto"
++	proto "github.com/gogo/protobuf/proto"
++	io "io"
++	math "math"
++	math_bits "math/bits"
++)
++
++// Reference imports to suppress errors if they are not otherwise used.
++var _ = proto.Marshal
++var _ = fmt.Errorf
++var _ = math.Inf
++
++// This is a compile-time assertion to ensure that this generated file
++// is compatible with the proto package it is being compiled against.
++// A compilation error at this line likely means your copy of the
++// proto package needs to be updated.
++const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
++
++// PubKey defines a ed25519 public key
++// Key is the compressed form of the pubkey. The first byte depends is a 0x02 byte
++// if the y-coordinate is the lexicographically largest of the two associated with
++// the x-coordinate. Otherwise the first byte is a 0x03.
++// This prefix is followed with the x-coordinate.
++type PubKey struct {
++	Key crypto_ed25519.PublicKey `protobuf:"bytes,1,opt,name=key,proto3,casttype=crypto/ed25519.PublicKey" json:"key,omitempty"`
++}
++
++func (m *PubKey) Reset()      { *m = PubKey{} }
++func (*PubKey) ProtoMessage() {}
++func (*PubKey) Descriptor() ([]byte, []int) {
++	return fileDescriptor_329f0c7887868da2, []int{0}
++}
++func (m *PubKey) XXX_Unmarshal(b []byte) error {
++	return m.Unmarshal(b)
++}
++func (m *PubKey) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
++	if deterministic {
++		return xxx_messageInfo_PubKey.Marshal(b, m, deterministic)
++	} else {
++		b = b[:cap(b)]
++		n, err := m.MarshalToSizedBuffer(b)
++		if err != nil {
++			return nil, err
++		}
++		return b[:n], nil
++	}
++}
++func (m *PubKey) XXX_Merge(src proto.Message) {
++	xxx_messageInfo_PubKey.Merge(m, src)
++}
++func (m *PubKey) XXX_Size() int {
++	return m.Size()
++}
++func (m *PubKey) XXX_DiscardUnknown() {
++	xxx_messageInfo_PubKey.DiscardUnknown(m)
++}
++
++var xxx_messageInfo_PubKey proto.InternalMessageInfo
++
++func (m *PubKey) GetKey() crypto_ed25519.PublicKey {
++	if m != nil {
++		return m.Key
++	}
++	return nil
++}
++
++// PrivKey defines a ed25519 private key.
++type PrivKey struct {
++	Key crypto_ed25519.PrivateKey `protobuf:"bytes,1,opt,name=key,proto3,casttype=crypto/ed25519.PrivateKey" json:"key,omitempty"`
++}
++
++func (m *PrivKey) Reset()         { *m = PrivKey{} }
++func (m *PrivKey) String() string { return proto.CompactTextString(m) }
++func (*PrivKey) ProtoMessage()    {}
++func (*PrivKey) Descriptor() ([]byte, []int) {
++	return fileDescriptor_329f0c7887868da2, []int{1}
++}
++func (m *PrivKey) XXX_Unmarshal(b []byte) error {
++	return m.Unmarshal(b)
++}
++func (m *PrivKey) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
++	if deterministic {
++		return xxx_messageInfo_PrivKey.Marshal(b, m, deterministic)
++	} else {
++		b = b[:cap(b)]
++		n, err := m.MarshalToSizedBuffer(b)
++		if err != nil {
++			return nil, err
++		}
++		return b[:n], nil
++	}
++}
++func (m *PrivKey) XXX_Merge(src proto.Message) {
++	xxx_messageInfo_PrivKey.Merge(m, src)
++}
++func (m *PrivKey) XXX_Size() int {
++	return m.Size()
++}
++func (m *PrivKey) XXX_DiscardUnknown() {
++	xxx_messageInfo_PrivKey.DiscardUnknown(m)
++}
++
++var xxx_messageInfo_PrivKey proto.InternalMessageInfo
++
++func (m *PrivKey) GetKey() crypto_ed25519.PrivateKey {
++	if m != nil {
++		return m.Key
++	}
++	return nil
++}
++
++func init() {
++	proto.RegisterType((*PubKey)(nil), "cosmos.crypto.ed25519x.PubKey")
++	proto.RegisterType((*PrivKey)(nil), "cosmos.crypto.ed25519x.PrivKey")
++}
++
++func init() { proto.RegisterFile("cosmos/crypto/ed25519x/keys.proto", fileDescriptor_329f0c7887868da2) }
++
++var fileDescriptor_329f0c7887868da2 = []byte{
++	// 222 bytes of a gzipped FileDescriptorProto
++	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xe2, 0x52, 0x4c, 0xce, 0x2f, 0xce,
++	0xcd, 0x2f, 0xd6, 0x4f, 0x2e, 0xaa, 0x2c, 0x28, 0xc9, 0xd7, 0x4f, 0x4d, 0x31, 0x32, 0x35, 0x35,
++	0xb4, 0xac, 0xd0, 0xcf, 0x4e, 0xad, 0x2c, 0xd6, 0x2b, 0x28, 0xca, 0x2f, 0xc9, 0x17, 0x12, 0x83,
++	0x28, 0xd1, 0x83, 0x28, 0xd1, 0x83, 0x29, 0x91, 0x12, 0x49, 0xcf, 0x4f, 0xcf, 0x07, 0x2b, 0xd1,
++	0x07, 0xb1, 0x20, 0xaa, 0x95, 0xec, 0xb8, 0xd8, 0x02, 0x4a, 0x93, 0xbc, 0x53, 0x2b, 0x85, 0xf4,
++	0xb8, 0x98, 0xb3, 0x53, 0x2b, 0x25, 0x18, 0x15, 0x18, 0x35, 0x78, 0x9c, 0x64, 0x7e, 0xdd, 0x93,
++	0x97, 0x40, 0xb5, 0x44, 0x2f, 0xa0, 0x34, 0x29, 0x27, 0x33, 0xd9, 0x3b, 0xb5, 0x32, 0x08, 0xa4,
++	0xd0, 0x8a, 0x65, 0xc6, 0x02, 0x79, 0x06, 0x25, 0x2b, 0x2e, 0xf6, 0x80, 0xa2, 0xcc, 0x32, 0x90,
++	0x01, 0xfa, 0xc8, 0x06, 0xc8, 0xfe, 0xba, 0x27, 0x2f, 0x89, 0x6e, 0x40, 0x51, 0x66, 0x59, 0x62,
++	0x49, 0x2a, 0xcc, 0x04, 0x27, 0xef, 0x13, 0x8f, 0xe4, 0x18, 0x2f, 0x3c, 0x92, 0x63, 0x7c, 0xf0,
++	0x48, 0x8e, 0x71, 0xc2, 0x63, 0x39, 0x86, 0x0b, 0x8f, 0xe5, 0x18, 0x6e, 0x3c, 0x96, 0x63, 0x88,
++	0x32, 0x4c, 0xcf, 0x2c, 0xc9, 0x28, 0x4d, 0xd2, 0x4b, 0xce, 0xcf, 0xd5, 0x87, 0xf9, 0x18, 0x4c,
++	0xe9, 0x16, 0xa7, 0x64, 0xc3, 0x3c, 0x0f, 0xf2, 0x33, 0x3c, 0x04, 0x92, 0xd8, 0xc0, 0xfe, 0x31,
++	0x06, 0x04, 0x00, 0x00, 0xff, 0xff, 0x67, 0x1a, 0xd0, 0x00, 0x22, 0x01, 0x00, 0x00,
++}
++
++func (m *PubKey) Marshal() (dAtA []byte, err error) {
++	size := m.Size()
++	dAtA = make([]byte, size)
++	n, err := m.MarshalToSizedBuffer(dAtA[:size])
++	if err != nil {
++		return nil, err
++	}
++	return dAtA[:n], nil
++}
++
++func (m *PubKey) MarshalTo(dAtA []byte) (int, error) {
++	size := m.Size()
++	return m.MarshalToSizedBuffer(dAtA[:size])
++}
++
++func (m *PubKey) MarshalToSizedBuffer(dAtA []byte) (int, error) {
++	i := len(dAtA)
++	_ = i
++	var l int
++	_ = l
++	if len(m.Key) > 0 {
++		i -= len(m.Key)
++		copy(dAtA[i:], m.Key)
++		i = encodeVarintKeys(dAtA, i, uint64(len(m.Key)))
++		i--
++		dAtA[i] = 0xa
++	}
++	return len(dAtA) - i, nil
++}
++
++func (m *PrivKey) Marshal() (dAtA []byte, err error) {
++	size := m.Size()
++	dAtA = make([]byte, size)
++	n, err := m.MarshalToSizedBuffer(dAtA[:size])
++	if err != nil {
++		return nil, err
++	}
++	return dAtA[:n], nil
++}
++
++func (m *PrivKey) MarshalTo(dAtA []byte) (int, error) {
++	size := m.Size()
++	return m.MarshalToSizedBuffer(dAtA[:size])
++}
++
++func (m *PrivKey) MarshalToSizedBuffer(dAtA []byte) (int, error) {
++	i := len(dAtA)
++	_ = i
++	var l int
++	_ = l
++	if len(m.Key) > 0 {
++		i -= len(m.Key)
++		copy(dAtA[i:], m.Key)
++		i = encodeVarintKeys(dAtA, i, uint64(len(m.Key)))
++		i--
++		dAtA[i] = 0xa
++	}
++	return len(dAtA) - i, nil
++}
++
++func encodeVarintKeys(dAtA []byte, offset int, v uint64) int {
++	offset -= sovKeys(v)
++	base := offset
++	for v >= 1<<7 {
++		dAtA[offset] = uint8(v&0x7f | 0x80)
++		v >>= 7
++		offset++
++	}
++	dAtA[offset] = uint8(v)
++	return base
++}
++func (m *PubKey) Size() (n int) {
++	if m == nil {
++		return 0
++	}
++	var l int
++	_ = l
++	l = len(m.Key)
++	if l > 0 {
++		n += 1 + l + sovKeys(uint64(l))
++	}
++	return n
++}
++
++func (m *PrivKey) Size() (n int) {
++	if m == nil {
++		return 0
++	}
++	var l int
++	_ = l
++	l = len(m.Key)
++	if l > 0 {
++		n += 1 + l + sovKeys(uint64(l))
++	}
++	return n
++}
++
++func sovKeys(x uint64) (n int) {
++	return (math_bits.Len64(x|1) + 6) / 7
++}
++func sozKeys(x uint64) (n int) {
++	return sovKeys(uint64((x << 1) ^ uint64((int64(x) >> 63))))
++}
++func (m *PubKey) Unmarshal(dAtA []byte) error {
++	l := len(dAtA)
++	iNdEx := 0
++	for iNdEx < l {
++		preIndex := iNdEx
++		var wire uint64
++		for shift := uint(0); ; shift += 7 {
++			if shift >= 64 {
++				return ErrIntOverflowKeys
++			}
++			if iNdEx >= l {
++				return io.ErrUnexpectedEOF
++			}
++			b := dAtA[iNdEx]
++			iNdEx++
++			wire |= uint64(b&0x7F) << shift
++			if b < 0x80 {
++				break
++			}
++		}
++		fieldNum := int32(wire >> 3)
++		wireType := int(wire & 0x7)
++		if wireType == 4 {
++			return fmt.Errorf("proto: PubKey: wiretype end group for non-group")
++		}
++		if fieldNum <= 0 {
++			return fmt.Errorf("proto: PubKey: illegal tag %d (wire type %d)", fieldNum, wire)
++		}
++		switch fieldNum {
++		case 1:
++			if wireType != 2 {
++				return fmt.Errorf("proto: wrong wireType = %d for field Key", wireType)
++			}
++			var byteLen int
++			for shift := uint(0); ; shift += 7 {
++				if shift >= 64 {
++					return ErrIntOverflowKeys
++				}
++				if iNdEx >= l {
++					return io.ErrUnexpectedEOF
++				}
++				b := dAtA[iNdEx]
++				iNdEx++
++				byteLen |= int(b&0x7F) << shift
++				if b < 0x80 {
++					break
++				}
++			}
++			if byteLen < 0 {
++				return ErrInvalidLengthKeys
++			}
++			postIndex := iNdEx + byteLen
++			if postIndex < 0 {
++				return ErrInvalidLengthKeys
++			}
++			if postIndex > l {
++				return io.ErrUnexpectedEOF
++			}
++			m.Key = append(m.Key[:0], dAtA[iNdEx:postIndex]...)
++			if m.Key == nil {
++				m.Key = []byte{}
++			}
++			iNdEx = postIndex
++		default:
++			iNdEx = preIndex
++			skippy, err := skipKeys(dAtA[iNdEx:])
++			if err != nil {
++				return err
++			}
++			if skippy < 0 {
++				return ErrInvalidLengthKeys
++			}
++			if (iNdEx + skippy) < 0 {
++				return ErrInvalidLengthKeys
++			}
++			if (iNdEx + skippy) > l {
++				return io.ErrUnexpectedEOF
++			}
++			iNdEx += skippy
++		}
++	}
++
++	if iNdEx > l {
++		return io.ErrUnexpectedEOF
++	}
++	return nil
++}
++func (m *PrivKey) Unmarshal(dAtA []byte) error {
++	l := len(dAtA)
++	iNdEx := 0
++	for iNdEx < l {
++		preIndex := iNdEx
++		var wire uint64
++		for shift := uint(0); ; shift += 7 {
++			if shift >= 64 {
++				return ErrIntOverflowKeys
++			}
++			if iNdEx >= l {
++				return io.ErrUnexpectedEOF
++			}
++			b := dAtA[iNdEx]
++			iNdEx++
++			wire |= uint64(b&0x7F) << shift
++			if b < 0x80 {
++				break
++			}
++		}
++		fieldNum := int32(wire >> 3)
++		wireType := int(wire & 0x7)
++		if wireType == 4 {
++			return fmt.Errorf("proto: PrivKey: wiretype end group for non-group")
++		}
++		if fieldNum <= 0 {
++			return fmt.Errorf("proto: PrivKey: illegal tag %d (wire type %d)", fieldNum, wire)
++		}
++		switch fieldNum {
++		case 1:
++			if wireType != 2 {
++				return fmt.Errorf("proto: wrong wireType = %d for field Key", wireType)
++			}
++			var byteLen int
++			for shift := uint(0); ; shift += 7 {
++				if shift >= 64 {
++					return ErrIntOverflowKeys
++				}
++				if iNdEx >= l {
++					return io.ErrUnexpectedEOF
++				}
++				b := dAtA[iNdEx]
++				iNdEx++
++				byteLen |= int(b&0x7F) << shift
++				if b < 0x80 {
++					break
++				}
++			}
++			if byteLen < 0 {
++				return ErrInvalidLengthKeys
++			}
++			postIndex := iNdEx + byteLen
++			if postIndex < 0 {
++				return ErrInvalidLengthKeys
++			}
++			if postIndex > l {
++				return io.ErrUnexpectedEOF
++			}
++			m.Key = append(m.Key[:0], dAtA[iNdEx:postIndex]...)
++			if m.Key == nil {
++				m.Key = []byte{}
++			}
++			iNdEx = postIndex
++		default:
++			iNdEx = preIndex
++			skippy, err := skipKeys(dAtA[iNdEx:])
++			if err != nil {
++				return err
++			}
++			if skippy < 0 {
++				return ErrInvalidLengthKeys
++			}
++			if (iNdEx + skippy) < 0 {
++				return ErrInvalidLengthKeys
++			}
++			if (iNdEx + skippy) > l {
++				return io.ErrUnexpectedEOF
++			}
++			iNdEx += skippy
++		}
++	}
++
++	if iNdEx > l {
++		return io.ErrUnexpectedEOF
++	}
++	return nil
++}
++func skipKeys(dAtA []byte) (n int, err error) {
++	l := len(dAtA)
++	iNdEx := 0
++	depth := 0
++	for iNdEx < l {
++		var wire uint64
++		for shift := uint(0); ; shift += 7 {
++			if shift >= 64 {
++				return 0, ErrIntOverflowKeys
++			}
++			if iNdEx >= l {
++				return 0, io.ErrUnexpectedEOF
++			}
++			b := dAtA[iNdEx]
++			iNdEx++
++			wire |= (uint64(b) & 0x7F) << shift
++			if b < 0x80 {
++				break
++			}
++		}
++		wireType := int(wire & 0x7)
++		switch wireType {
++		case 0:
++			for shift := uint(0); ; shift += 7 {
++				if shift >= 64 {
++					return 0, ErrIntOverflowKeys
++				}
++				if iNdEx >= l {
++					return 0, io.ErrUnexpectedEOF
++				}
++				iNdEx++
++				if dAtA[iNdEx-1] < 0x80 {
++					break
++				}
++			}
++		case 1:
++			iNdEx += 8
++		case 2:
++			var length int
++			for shift := uint(0); ; shift += 7 {
++				if shift >= 64 {
++					return 0, ErrIntOverflowKeys
++				}
++				if iNdEx >= l {
++					return 0, io.ErrUnexpectedEOF
++				}
++				b := dAtA[iNdEx]
++				iNdEx++
++				length |= (int(b) & 0x7F) << shift
++				if b < 0x80 {
++					break
++				}
++			}
++			if length < 0 {
++				return 0, ErrInvalidLengthKeys
++			}
++			iNdEx += length
++		case 3:
++			depth++
++		case 4:
++			if depth == 0 {
++				return 0, ErrUnexpectedEndOfGroupKeys
++			}
++			depth--
++		case 5:
++			iNdEx += 4
++		default:
++			return 0, fmt.Errorf("proto: illegal wireType %d", wireType)
++		}
++		if iNdEx < 0 {
++			return 0, ErrInvalidLengthKeys
++		}
++		if depth == 0 {
++			return iNdEx, nil
++		}
++	}
++	return 0, io.ErrUnexpectedEOF
++}
++
++var (
++	ErrInvalidLengthKeys        = fmt.Errorf("proto: negative length found during unmarshaling")
++	ErrIntOverflowKeys          = fmt.Errorf("proto: integer overflow")
++	ErrUnexpectedEndOfGroupKeys = fmt.Errorf("proto: unexpected end of group")
++)
+Index: proto/cosmos/crypto/ed25519x/keys.proto
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- proto/cosmos/crypto/ed25519x/keys.proto	(date 1606383578030)
++++ proto/cosmos/crypto/ed25519x/keys.proto	(date 1606383578030)
+@@ -0,0 +1,22 @@
++syntax = "proto3";
++package cosmos.crypto.ed25519x;
++
++import "gogoproto/gogo.proto";
++
++option go_package = "github.com/cosmos/cosmos-sdk/crypto/keys/ed25519x";
++
++// PubKey defines a ed25519 public key
++// Key is the compressed form of the pubkey. The first byte depends is a 0x02 byte
++// if the y-coordinate is the lexicographically largest of the two associated with
++// the x-coordinate. Otherwise the first byte is a 0x03.
++// This prefix is followed with the x-coordinate.
++message PubKey {
++    option (gogoproto.goproto_stringer) = false;
++
++    bytes key = 1 [(gogoproto.casttype) = "crypto/ed25519.PublicKey"];
++}
++
++// PrivKey defines a ed25519 private key.
++message PrivKey {
++    bytes key = 1 [(gogoproto.casttype) = "crypto/ed25519.PrivateKey"];
++}
+Index: client/keys/add.go
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- client/keys/add.go	(revision 590358652cc1cbc13872ea1659187e073ea38e75)
++++ client/keys/add.go	(date 1606383577981)
+@@ -75,7 +75,7 @@
+ 	cmd.Flags().Uint32(flagCoinType, sdk.GetConfig().GetCoinType(), "coin type number for HD derivation")
+ 	cmd.Flags().Uint32(flagAccount, 0, "Account number for HD derivation")
+ 	cmd.Flags().Uint32(flagIndex, 0, "Address index number for HD derivation")
+-	cmd.Flags().String(flags.FlagKeyAlgorithm, string(hd.Secp256k1Type), "Key signing algorithm to generate keys for")
++	cmd.Flags().String(flags.FlagKeyAlgorithm, string(hd.Ed25519xType), "Key signing algorithm to generate keys for")
+ 
+ 	cmd.SetOut(cmd.OutOrStdout())
+ 	cmd.SetErr(cmd.ErrOrStderr())
+@@ -126,6 +126,9 @@
+ 
+ 	keyringAlgos, _ := kb.SupportedAlgorithms()
+ 	algoStr, _ := cmd.Flags().GetString(flags.FlagKeyAlgorithm)
++	if algoStr != string(hd.Ed25519xType) {
++		return fmt.Errorf("provided algorithm %q is not supported", algoStr)
++	}
+ 	algo, err := keyring.NewSigningAlgoFromString(algoStr, keyringAlgos)
+ 	if err != nil {
+ 		return err
+Index: types/address.go
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- types/address.go	(revision 590358652cc1cbc13872ea1659187e073ea38e75)
++++ types/address.go	(date 1606383578065)
+@@ -34,16 +34,16 @@
+ 	//	config.Seal()
+ 
+ 	// AddrLen defines a valid address length
+-	AddrLen = 20
++	AddrLen = 40
+ 	// Bech32PrefixAccAddr defines the Bech32 prefix of an account's address
+-	Bech32MainPrefix = "cosmos"
++	Bech32MainPrefix = "gt1"
+ 
+ 	// Atom in https://github.com/satoshilabs/slips/blob/master/slip-0044.md
+-	CoinType = 118
++	CoinType = 669
+ 
+ 	// BIP44Prefix is the parts of the BIP44 HD path that are fixed by
+ 	// what we used during the fundraiser.
+-	FullFundraiserPath = "44'/118'/0'/0/0"
++	FullFundraiserPath = "44'/669'/0'/0/0"
+ 
+ 	// PrefixAccount is the prefix for account keys
+ 	PrefixAccount = "acc"
+@@ -131,7 +131,17 @@
+ 
+ 	bz, err := GetFromBech32(address, bech32PrefixAccAddr)
+ 	if err != nil {
+-		return nil, err
++		bz, err = GetFromBech32(address, "gt2")
++		if err != nil {
++			bz, err = GetFromBech32(address, "vault1")
++			if err != nil {
++				bz, err = GetFromBech32(address, "vault2")
++				if err != nil {
++					return nil, err
++				}
++			}
++		}
++
+ 	}
+ 
+ 	err = VerifyAddressFormat(bz)
+Index: x/auth/ante/sigverify.go
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- x/auth/ante/sigverify.go	(revision 590358652cc1cbc13872ea1659187e073ea38e75)
++++ x/auth/ante/sigverify.go	(date 1606383578074)
+@@ -4,6 +4,7 @@
+ 	"bytes"
+ 	"encoding/hex"
+ 	"fmt"
++	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519x"
+ 
+ 	"github.com/tendermint/tendermint/crypto"
+ 
+@@ -368,7 +369,9 @@
+ 	case *secp256k1.PubKey:
+ 		meter.ConsumeGas(params.SigVerifyCostSecp256k1, "ante verify: secp256k1")
+ 		return nil
+-
++	case *ed25519x.PubKey:
++		meter.ConsumeGas(params.SigVerifyCostED25519, "ante verify: ed25519x")
++		return nil
+ 	case multisig.PubKey:
+ 		multisignature, ok := sig.Data.(*signing.MultiSignatureData)
+ 		if !ok {
+Index: go.mod
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- go.mod	(revision 590358652cc1cbc13872ea1659187e073ea38e75)
++++ go.mod	(date 1606383578094)
+@@ -53,6 +53,7 @@
+ 	google.golang.org/grpc v1.33.0
+ 	google.golang.org/protobuf v1.25.0
+ 	gopkg.in/yaml.v2 v2.3.0
++	github.com/gatechain/crypto v0.0.8
+ )
+ 
+ replace github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.2-alpha.regen.4
+Index: crypto/keyring/keyring.go
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- crypto/keyring/keyring.go	(revision 590358652cc1cbc13872ea1659187e073ea38e75)
++++ crypto/keyring/keyring.go	(date 1606383578013)
+@@ -176,8 +176,8 @@
+ func newKeystore(kr keyring.Keyring, opts ...Option) keystore {
+ 	// Default options for keybase
+ 	options := Options{
+-		SupportedAlgos:       SigningAlgoList{hd.Secp256k1},
+-		SupportedAlgosLedger: SigningAlgoList{hd.Secp256k1},
++		SupportedAlgos:       SigningAlgoList{hd.Ed25519x, hd.Secp256k1},
++		SupportedAlgosLedger: SigningAlgoList{},
+ 	}
+ 
+ 	for _, optionFn := range opts {
+Index: scripts/protocgen.sh
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- scripts/protocgen.sh	(revision 590358652cc1cbc13872ea1659187e073ea38e75)
++++ scripts/protocgen.sh	(date 1606383578041)
+@@ -4,7 +4,7 @@
+ 
+ proto_dirs=$(find ./proto -path -prune -o -name '*.proto' -print0 | xargs -0 -n1 dirname | sort | uniq)
+ for dir in $proto_dirs; do
+-  protoc \
++  buf protoc \
+   -I "proto" \
+   -I "third_party/proto" \
+   --gocosmos_out=plugins=interfacetype+grpc,\
+@@ -12,7 +12,7 @@
+   $(find "${dir}" -maxdepth 1 -name '*.proto')
+ 
+   # command to generate gRPC gateway (*.pb.gw.go in respective modules) files
+-  protoc \
++  buf protoc \
+   -I "proto" \
+   -I "third_party/proto" \
+   --grpc-gateway_out=logtostderr=true:. \
+@@ -21,7 +21,7 @@
+ done
+ 
+ # generate codec/testdata proto code
+-protoc -I "proto" -I "third_party/proto" -I "testutil/testdata" --gocosmos_out=plugins=interfacetype+grpc,\
++buf protoc -I "proto" -I "third_party/proto" -I "testutil/testdata" --gocosmos_out=plugins=interfacetype+grpc,\
+ Mgoogle/protobuf/any.proto=github.com/cosmos/cosmos-sdk/codec/types:. ./testutil/testdata/*.proto
+ 
+ # move proto files to the right places
+Index: crypto/codec/proto.go
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- crypto/codec/proto.go	(revision 590358652cc1cbc13872ea1659187e073ea38e75)
++++ crypto/codec/proto.go	(date 1606383577995)
+@@ -1,6 +1,7 @@
+ package codec
+ 
+ import (
++	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519x"
+ 	tmcrypto "github.com/tendermint/tendermint/crypto"
+ 
+ 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
+@@ -19,9 +20,11 @@
+ 	registry.RegisterImplementations((*tmcrypto.PubKey)(nil), &ed25519.PubKey{})
+ 	registry.RegisterImplementations((*tmcrypto.PubKey)(nil), &secp256k1.PubKey{})
+ 	registry.RegisterImplementations((*tmcrypto.PubKey)(nil), &multisig.LegacyAminoPubKey{})
++	registry.RegisterImplementations((*tmcrypto.PubKey)(nil), &ed25519x.PubKey{})
+ 
+ 	registry.RegisterInterface("cosmos.crypto.PubKey", (*cryptotypes.PubKey)(nil))
+ 	registry.RegisterImplementations((*cryptotypes.PubKey)(nil), &ed25519.PubKey{})
+ 	registry.RegisterImplementations((*cryptotypes.PubKey)(nil), &secp256k1.PubKey{})
+ 	registry.RegisterImplementations((*cryptotypes.PubKey)(nil), &multisig.LegacyAminoPubKey{})
++	registry.RegisterImplementations((*cryptotypes.PubKey)(nil), &ed25519x.PubKey{})
+ }
